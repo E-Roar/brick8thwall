@@ -198,8 +198,8 @@ export function initGameLoop() {
       onCanvasSizeChange: ({ canvasWidth, canvasHeight }: any) => {
         console.log('[Pipeline] onCanvasSizeChange:', canvasWidth, 'x', canvasHeight)
         renderer.setSize(canvasWidth, canvasHeight)
-        camera.aspect = canvasWidth / canvasHeight
-        camera.updateProjectionMatrix()
+        // CRITICAL: Do NOT call camera.updateProjectionMatrix() here.
+        // The projection matrix is managed by 8th Wall's reality.intrinsics!
       },
 
       // ── Image Tracking Event Listeners ──────────────────────────
@@ -208,7 +208,8 @@ export function initGameLoop() {
       listeners: [
         {
           event: 'reality.imagefound',
-          process: ({ detail }: any) => {
+          process: (event: any) => {
+            const detail = event.detail || event
             console.log('[Pipeline] ★ reality.imagefound:', JSON.stringify({
               name: detail.name,
               position: detail.position,
@@ -225,7 +226,8 @@ export function initGameLoop() {
         },
         {
           event: 'reality.imageupdated',
-          process: ({ detail }: any) => {
+          process: (event: any) => {
+            const detail = event.detail || event
             if (detail.name === IMAGE_TARGET_NAME && trackedContent) {
               applyPose(detail)
             }
@@ -233,7 +235,8 @@ export function initGameLoop() {
         },
         {
           event: 'reality.imagelost',
-          process: ({ detail }: any) => {
+          process: (event: any) => {
+            const detail = event.detail || event
             console.log('[Pipeline] reality.imagelost:', detail.name)
             if (detail.name === IMAGE_TARGET_NAME && trackedContent) {
               trackedContent.visible = false
@@ -242,13 +245,15 @@ export function initGameLoop() {
         },
         {
           event: 'reality.imageloading',
-          process: ({ detail }: any) => {
+          process: (event: any) => {
+            const detail = event.detail || event
             console.log('[Pipeline] reality.imageloading:', JSON.stringify(detail))
           },
         },
         {
           event: 'reality.imagescanning',
-          process: ({ detail }: any) => {
+          process: (event: any) => {
+            const detail = event.detail || event
             console.log('[Pipeline] reality.imagescanning:',
               JSON.stringify(detail?.imageTargets?.map((t: any) => t.name)))
           },
@@ -350,8 +355,8 @@ export function initGameLoop() {
 
   // ── Window Resize ───────────────────────────────────────────────
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight
-    camera.updateProjectionMatrix()
+    // CRITICAL: Do NOT update camera aspect/projection matrix here.
+    // 8th Wall's pipeline module handles camera intrinsics on resize.
     renderer.setSize(window.innerWidth, window.innerHeight)
   })
 }

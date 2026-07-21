@@ -121,6 +121,9 @@ export function initGameLoop() {
       targetGroup.add(modelMesh)
       glbLoaded = true
       console.log('[GameLoop] Tracked content added to targetGroup with calibrated offsets')
+      
+      const progressEl = document.getElementById('loading-progress')
+      if (progressEl) progressEl.innerText = 'Assets Loaded (100%)'
     },
     (progress) => {
       const progressEl = document.getElementById('loading-progress')

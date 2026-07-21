@@ -23,7 +23,7 @@ export default defineConfig({
     }),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'assets/*', 'image-targets/*'],
+      includeAssets: ['favicon.ico', 'image-targets/*'],
       manifest: {
         name: 'Retro AR Tetris',
         short_name: 'RetroAR',

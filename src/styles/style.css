@@ -48,16 +48,15 @@ body {
   justify-content: space-between;
   align-items: flex-end;
   width: 100%;
-  max-width: 1000px;
   box-sizing: border-box;
   pointer-events: none;
-  padding-bottom: 90px;
+  padding: 0 16px 28px 16px;
 }
 
 .dpad-container {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  gap: 6px;
   align-items: center;
   justify-items: center;
   pointer-events: none;
@@ -66,109 +65,18 @@ body {
 .action-container {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 20px;
+  align-items: center;
+  gap: 14px;
   pointer-events: none;
 }
 
 .small-actions {
   display: flex;
-  gap: 15px;
+  gap: 10px;
 }
 
 .rotate-action {
-  margin-top: 10px;
-}
-
-/* Retro Glass Gamepad UI */
-.retro-ui-container {
-  position: absolute;
-  bottom: 80px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 90%;
-  max-width: 400px;
-  height: 120px;
-  display: none;
-  justify-content: space-between;
-  align-items: center;
-  pointer-events: none;
-  z-index: 9999;
-  font-family: monospace, 'Courier New', Courier, serif;
-  box-sizing: border-box;
-  padding: 0 10px;
-}
-
-.retro-dpad {
-  position: relative;
-  width: 120px;
-  height: 120px;
-  pointer-events: auto;
-}
-
-.retro-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-  pointer-events: auto;
-}
-
-.retro-btn {
-  background: rgba(10, 20, 10, 0.5);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 2px outset rgba(255, 255, 255, 0.4);
-  color: rgba(255, 255, 255, 0.9);
-  text-shadow: 1px 1px 0 #000;
-  font-family: inherit;
-  font-size: 16px;
-  font-weight: bold;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  user-select: none;
-  cursor: pointer;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-  transition: transform 0.05s ease, background 0.1s ease, box-shadow 0.05s ease;
-}
-
-.retro-btn:active {
-  transform: scale(0.95);
-  background: rgba(255, 255, 255, 0.2);
-  border-style: inset;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-.dpad-btn {
-  position: absolute;
-  width: 40px;
-  height: 40px;
-  border-radius: 6px;
-}
-
-.btn-left { left: 0px; top: 40px; }
-.btn-right { left: 80px; top: 40px; }
-.btn-down { left: 40px; top: 80px; }
-
-.action-btn-start {
-  padding: 10px 20px;
-  border-radius: 20px;
-  background: rgba(200, 30, 30, 0.5);
-  border-color: rgba(255, 100, 100, 0.4);
-}
-.action-btn-start:active {
-  background: rgba(200, 30, 30, 0.7);
-}
-
-.action-btn-rotate {
-  width: 65px;
-  height: 65px;
-  border-radius: 50%;
-  background: rgba(30, 100, 200, 0.5);
-  border-color: rgba(100, 150, 255, 0.4);
-}
-.action-btn-rotate:active {
-  background: rgba(30, 100, 200, 0.7);
+  margin-top: 4px;
 }
 
 #ar-splash {
@@ -183,29 +91,39 @@ body {
   font-family: monospace;
   cursor: pointer;
   text-align: center;
+  -webkit-tap-highlight-color: transparent;
 }
 #ar-splash h1 {
   font-size: 2.5rem;
   margin-bottom: 10px;
   text-shadow: 2px 2px 0 #000;
 }
-#ar-splash p {
-  font-size: 1.2rem;
-  opacity: 0.8;
+#splash-status {
+  font-size: 1.4rem;
+  font-weight: bold;
+  opacity: 1;
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { opacity: 0.6; transform: scale(0.95); }
+  50% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0.6; transform: scale(0.95); }
+}
+#loading-progress {
+  font-size: 0.9rem;
+  opacity: 0.6;
+  margin-top: 8px;
 }
 
 /* Mobile responsive layout */
 @media (max-width: 768px) {
   .keyboard-container {
-    padding-bottom: 85px;
+    padding: 0 12px 20px 12px;
   }
   .dpad-container {
-    gap: 5px;
-  }
-  .action-container {
-    gap: 15px;
+    gap: 4px;
   }
   .small-actions {
-    gap: 8px;
+    gap: 6px;
   }
 }

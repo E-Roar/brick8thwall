@@ -20,6 +20,8 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { createScreenRenderer } from './screen-patcher'
 
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
+
 const IMAGE_TARGET_NAME = 'mural'
 
 export function initGameLoop() {
@@ -87,7 +89,10 @@ export function initGameLoop() {
   scene.add(targetGroup)
   let glbLoaded = false
 
-  new GLTFLoader().load(
+  const gltfLoader = new GLTFLoader()
+  gltfLoader.setMeshoptDecoder(MeshoptDecoder)
+
+  gltfLoader.load(
     './assets/ImageTracking.glb',
     (gltf) => {
       console.log('[GameLoop] GLB loaded —', gltf.scene.children.length, 'children')
@@ -118,11 +123,16 @@ export function initGameLoop() {
       console.log('[GameLoop] Tracked content added to targetGroup with calibrated offsets')
     },
     (progress) => {
-      if (progress.total > 0) {
-        const pct = Math.round((progress.loaded / progress.total) * 100)
-        console.log(`[GameLoop] GLB loading: ${pct}%`)
-        const progressEl = document.getElementById('loading-progress')
-        if (progressEl) progressEl.innerText = `Loading Assets... ${pct}%`
+      const progressEl = document.getElementById('loading-progress')
+      if (progressEl) {
+        if (progress.total > 0) {
+          const pct = Math.round((progress.loaded / progress.total) * 100)
+          progressEl.innerText = `Loading Assets... ${pct}%`
+        } else {
+          // Server might omit Content-Length header, show KB loaded instead
+          const loadedKB = Math.round(progress.loaded / 1024)
+          progressEl.innerText = `Loading Assets... ${loadedKB} KB`
+        }
       }
     },
     (err) => {

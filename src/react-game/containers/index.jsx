@@ -39,7 +39,7 @@ const App = () => {
       <div style={{
         width: '100%',
         boxSizing: 'border-box',
-        padding: '0 20px 40px 20px',
+        padding: '0 0px 40px 0px',
         pointerEvents: 'none',
         display: 'flex',
         justifyContent: 'center', /* Center the inner container */

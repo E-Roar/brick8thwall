@@ -87,10 +87,18 @@ export function initGameLoop() {
   const targetGroup = new THREE.Group()
   targetGroup.visible = false
   scene.add(targetGroup)
+  
   let glbLoaded = false
+  let xrReady = false
+
+  const tryHideSplash = () => {
+    if (glbLoaded && xrReady) {
+      const splash = document.getElementById('ar-splash')
+      if (splash) splash.style.display = 'none'
+    }
+  }
 
   const gltfLoader = new GLTFLoader()
-  gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 
   gltfLoader.load(
     './assets/ImageTracking.glb',
@@ -124,6 +132,8 @@ export function initGameLoop() {
       
       const progressEl = document.getElementById('loading-progress')
       if (progressEl) progressEl.innerText = 'Assets Loaded (100%)'
+      
+      tryHideSplash()
     },
     (progress) => {
       const progressEl = document.getElementById('loading-progress')
@@ -186,9 +196,8 @@ export function initGameLoop() {
         camera.aspect = canvasWidth / canvasHeight
         camera.updateProjectionMatrix()
         
-        // Hide splash screen only when camera is truly ready
-        const splash = document.getElementById('ar-splash')
-        if (splash) splash.style.display = 'none'
+        xrReady = true
+        tryHideSplash()
       },
 
       // Called every frame with CPU processing results (camera intrinsics)
@@ -364,28 +373,13 @@ export function initGameLoop() {
     console.log('[GameLoop] XR8 session started')
   }
 
-  // ── Splash Screen → Start Session ───────────────────────────────
+  // ── Splash Screen → Auto Start Session ───────────────────────────
   const splash = document.getElementById('ar-splash')
-
-  const handleStart = () => {
-    console.log('[GameLoop] User tapped splash — starting XR')
-    const status = document.getElementById('splash-status')
-    if (status) status.innerText = 'Initializing AR Camera... Please Wait'
-    
-    // Disable multiple taps
-    if (splash) {
-      splash.removeEventListener('click', handleStart)
-      splash.removeEventListener('touchstart', handleStart)
-    }
-    startXR()
-  }
-
-  if (splash) {
-    splash.addEventListener('click', handleStart)
-    splash.addEventListener('touchstart', handleStart)
-  } else {
-    startXR()
-  }
+  const status = document.getElementById('splash-status')
+  if (status) status.innerText = 'Initializing AR Camera... Please Wait'
+  
+  // Start immediately!
+  startXR()
 
   // ── Window Resize ───────────────────────────────────────────────
   window.addEventListener('resize', () => {

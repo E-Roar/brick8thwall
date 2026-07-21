@@ -32,6 +32,25 @@ export function createScreenRenderer() {
   let material: THREE.MeshStandardMaterial | null = null
 
   function patchMesh(mesh: THREE.Mesh) {
+    // 1. Generate missing UVs dynamically for the screen_plane
+    if (!mesh.geometry.attributes.uv) {
+      mesh.geometry.computeBoundingBox()
+      const bbox = mesh.geometry.boundingBox!
+      const size = new THREE.Vector3()
+      bbox.getSize(size)
+      const pos = mesh.geometry.attributes.position
+      const uvs = new Float32Array(pos.count * 2)
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i)
+        const y = pos.getY(i)
+        // Map local X/Y to 0..1 UV space
+        uvs[i * 2] = (x - bbox.min.x) / (size.x || 1)
+        uvs[i * 2 + 1] = (y - bbox.min.y) / (size.y || 1)
+      }
+      mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    }
+
+    // 2. Clone and apply material
     let mat: THREE.MeshStandardMaterial
     if (Array.isArray(mesh.material)) {
       mat = (mesh.material[0] as THREE.MeshStandardMaterial).clone()
@@ -47,7 +66,7 @@ export function createScreenRenderer() {
     mat.needsUpdate = true
     mesh.material = mat
     material = mat
-    console.log('[ScreenPatcher] Material patched on', mesh.name)
+    console.log('[ScreenPatcher] Material patched & UVs generated on', mesh.name)
   }
 
   function drawReduxState() {

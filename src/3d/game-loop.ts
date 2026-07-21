@@ -10,7 +10,6 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { createScreenRenderer } from './screen-patcher'
 
 const IMAGE_TARGET_NAME = 'mural'
-const IMAGE_TARGET_SRC = './assets/mural.png'
 const IMAGE_TARGET_UUID = 'mural-8thwall-target'
 
 export function initGameLoop() {
@@ -130,18 +129,30 @@ export function initGameLoop() {
 
   // ── 8th Wall Session Setup ──────────────────────────────────────
   // Configure image tracking BEFORE registering pipelines
-  XR8.XrController.configure({
-    tracking: {
-      imageTargets: {
-        targets: [
-          {
-            name: IMAGE_TARGET_NAME,
-            src: IMAGE_TARGET_SRC,
-            uuid: IMAGE_TARGET_UUID,
-          },
-        ],
-      },
+  // NOTE: The correct API is imageTargetData (array of JSON objects), NOT tracking.imageTargets
+  const imagePath = './image-targets/mural_luminance.png'
+
+  // Fetch the image target metadata and inject the correct image URL
+  const imageTargetMetadata = {
+    imagePath,
+    metadata: {},
+    name: IMAGE_TARGET_NAME,
+    type: 'PLANAR',
+    properties: {
+      left: 125,
+      top: 0,
+      width: 1616,
+      height: 2155,
+      isRotated: false,
+      originalWidth: 1865,
+      originalHeight: 2155,
     },
+  }
+
+  console.log('[GameLoop] Configuring image targets with imagePath:', imagePath)
+
+  XR8.XrController.configure({
+    imageTargetData: [imageTargetMetadata],
   })
 
   // Register pipeline modules — GlTextureRenderer MUST be first

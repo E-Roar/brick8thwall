@@ -1,0 +1,23 @@
+{
+  "imagePath": "image-targets/mural_luminance.png",
+  "metadata": null,
+  "name": "mural",
+  "type": "PLANAR",
+  "properties": {
+    "left": 125,
+    "top": 0,
+    "width": 1616,
+    "height": 2155,
+    "isRotated": false,
+    "originalWidth": 1865,
+    "originalHeight": 2155
+  },
+  "resources": {
+    "originalImage": "mural_original.png",
+    "croppedImage": "mural_cropped.png",
+    "thumbnailImage": "mural_thumbnail.png",
+    "luminanceImage": "mural_luminance.png"
+  },
+  "created": 1784637027362,
+  "updated": 1784637027362
+}

@@ -103,12 +103,19 @@ export function initGameLoop() {
       })
 
       const modelMesh = gltf.scene
+
+      // Apply user-calibrated offset and scale relative to the AR image target
+      modelMesh.position.set(-0.15, 0.2, 0)
+      modelMesh.rotation.set(
+        THREE.MathUtils.degToRad(90),
+        THREE.MathUtils.degToRad(0),
+        THREE.MathUtils.degToRad(0)
+      )
+      modelMesh.scale.set(4, 4, 4)
+
       targetGroup.add(modelMesh)
       glbLoaded = true
-      console.log('[GameLoop] Tracked content added to targetGroup')
-
-      // Create Calibration UI to adjust modelMesh inside targetGroup
-      createCalibrationUI(modelMesh)
+      console.log('[GameLoop] Tracked content added to targetGroup with calibrated offsets')
     },
     (progress) => {
       if (progress.total > 0) {
@@ -147,72 +154,6 @@ export function initGameLoop() {
     }
   }
 
-  // ── Calibration UI ────────────────────────────────────────────────
-  function createCalibrationUI(model: THREE.Object3D) {
-    const ui = document.createElement('div')
-    ui.style.position = 'fixed'
-    ui.style.top = '10px'
-    ui.style.right = '10px'
-    ui.style.zIndex = '10001'
-    ui.style.background = 'rgba(0,0,0,0.8)'
-    ui.style.color = 'lime'
-    ui.style.padding = '10px'
-    ui.style.fontFamily = 'monospace'
-    ui.style.fontSize = '12px'
-    ui.style.borderRadius = '5px'
-    ui.style.pointerEvents = 'auto'
-    
-    // Initial offsets
-    const state = {
-      px: 0, py: 0, pz: 0,
-      rx: 0, ry: 0, rz: 0,
-      s: 1
-    }
-
-    const valDisplay = document.createElement('pre')
-    valDisplay.style.margin = '5px 0 0 0'
-
-    const updateModel = () => {
-      model.position.set(state.px, state.py, state.pz)
-      model.rotation.set(
-        THREE.MathUtils.degToRad(state.rx),
-        THREE.MathUtils.degToRad(state.ry),
-        THREE.MathUtils.degToRad(state.rz)
-      )
-      model.scale.set(state.s, state.s, state.s)
-      valDisplay.innerText = JSON.stringify(state, null, 2)
-    }
-
-    const addControl = (label: string, key: keyof typeof state, step: number) => {
-      const container = document.createElement('div')
-      container.style.marginBottom = '5px'
-      container.innerText = label + ' '
-      
-      const btnMinus = document.createElement('button')
-      btnMinus.innerText = '-'
-      btnMinus.onclick = () => { state[key] = parseFloat((state[key] - step).toFixed(3)); updateModel() }
-      
-      const btnPlus = document.createElement('button')
-      btnPlus.innerText = '+'
-      btnPlus.onclick = () => { state[key] = parseFloat((state[key] + step).toFixed(3)); updateModel() }
-
-      container.appendChild(btnMinus)
-      container.appendChild(btnPlus)
-      ui.appendChild(container)
-    }
-
-    addControl('PosX', 'px', 0.05)
-    addControl('PosY', 'py', 0.05)
-    addControl('PosZ', 'pz', 0.05)
-    addControl('RotX', 'rx', 5)
-    addControl('RotY', 'ry', 5)
-    addControl('RotZ', 'rz', 5)
-    addControl('Scale', 's', 0.05)
-
-    ui.appendChild(valDisplay)
-    document.body.appendChild(ui)
-    updateModel()
-  }
 
   // ── Custom Pipeline Module — Three.js Rendering + Image Tracking ──
   //

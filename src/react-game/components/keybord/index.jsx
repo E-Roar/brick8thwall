@@ -8,7 +8,7 @@ const Keyboard = () => {
       {/* Left side: D-Pad */}
       <div className="dpad-container">
         <div />
-        <Button color="yellow" size="s1" label="UP" type="down" />
+        <Button color="yellow" size="s1" label="UP" type="up" />
         <div />
         
         <Button color="yellow" size="s1" label="LEFT" type="left" />
@@ -16,7 +16,7 @@ const Keyboard = () => {
         <Button color="yellow" size="s1" label="RIGHT" type="right" />
         
         <div />
-        <Button color="yellow" size="s1" label="DOWN" type="up" />
+        <Button color="yellow" size="s1" label="DOWN" type="down" />
         <div />
       </div>
 

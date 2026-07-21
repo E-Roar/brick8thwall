@@ -38,14 +38,15 @@ const App = () => {
       {/* Visible keyboard overlay — positioned by #react-root in style.css */}
       <div style={{
         width: '100%',
-        display: 'flex',
-        justifyContent: 'center',
-        paddingBottom: '70px',
+        boxSizing: 'border-box',
+        padding: '0 20px 40px 20px',
         pointerEvents: 'none',
+        display: 'flex',
+        justifyContent: 'center', /* Center the inner container */
       }}>
         <div style={{
-          transform: 'scale(0.55)',
-          transformOrigin: 'bottom center',
+          width: '100%',
+          maxWidth: '800px', /* Don't stretch infinitely on large screens */
           pointerEvents: 'auto',
         }}>
           <Keyboard filling={0} />

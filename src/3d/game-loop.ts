@@ -86,70 +86,84 @@ export function initGameLoop() {
   })
 
   // ── Image Tracking Events ───────────────────────────────────────
+  // Engine event detail has: {name, type, scale, position:{x,y,z}, rotation:{x,y,z,w}, properties}
   window.addEventListener('reality.imagefound', (e: any) => {
     const detail = e.detail || e
-    console.log('[GameLoop] Image found:', detail.name || detail.id)
-    if (detail.name === IMAGE_TARGET_NAME || detail.id === IMAGE_TARGET_UUID) {
+    console.log('[GameLoop] reality.imagefound:', JSON.stringify({ name: detail.name, scale: detail.scale }))
+    if (detail.name === IMAGE_TARGET_NAME) {
       if (trackedContent) {
         trackedContent.visible = true
+        const p = detail.position
+        const r = detail.rotation
+        if (p && r) {
+          trackedContent.position.set(p.x ?? 0, p.y ?? 0, p.z ?? 0)
+          trackedContent.quaternion.set(r.x ?? 0, r.y ?? 0, r.z ?? 0, r.w ?? 1)
+          const s = detail.scale ?? 1
+          trackedContent.scale.set(s, s, s)
+        }
+        console.log('[GameLoop] Mesh shown at:', trackedContent.position.toArray())
+      } else {
+        console.warn('[GameLoop] trackedContent not loaded yet when image found')
       }
     }
   })
 
   window.addEventListener('reality.imageupdated', (e: any) => {
     const detail = e.detail || e
-    if (detail.name === IMAGE_TARGET_NAME || detail.id === IMAGE_TARGET_UUID) {
+    if (detail.name === IMAGE_TARGET_NAME) {
       if (!trackedContent) return
-
-      const pose = detail.pose || detail.cameraPose
-      if (pose) {
-        trackedContent.position.set(
-          pose.position?.x ?? 0,
-          pose.position?.y ?? 0,
-          pose.position?.z ?? 0
-        )
-        trackedContent.quaternion.set(
-          pose.rotation?.x ?? 0,
-          pose.rotation?.y ?? 0,
-          pose.rotation?.z ?? 0,
-          pose.rotation?.w ?? 1
-        )
+      const p = detail.position
+      const r = detail.rotation
+      if (p && r) {
+        trackedContent.position.set(p.x ?? 0, p.y ?? 0, p.z ?? 0)
+        trackedContent.quaternion.set(r.x ?? 0, r.y ?? 0, r.z ?? 0, r.w ?? 1)
+        const s = detail.scale ?? 1
+        trackedContent.scale.set(s, s, s)
       }
     }
   })
 
   window.addEventListener('reality.imagelost', (e: any) => {
     const detail = e.detail || e
-    if (detail.name === IMAGE_TARGET_NAME || detail.id === IMAGE_TARGET_UUID) {
+    console.log('[GameLoop] reality.imagelost:', detail.name)
+    if (detail.name === IMAGE_TARGET_NAME) {
       if (trackedContent) {
         trackedContent.visible = false
       }
     }
   })
 
+  // Also log loading/scanning events for diagnostics
+  window.addEventListener('reality.imageloading', (e: any) => {
+    console.log('[GameLoop] reality.imageloading:', e.detail?.name || 'unknown')
+  })
+  window.addEventListener('reality.imagescanning', (e: any) => {
+    console.log('[GameLoop] reality.imagescanning:', e.detail?.name || 'unknown')
+  })
+
   // ── 8th Wall Session Setup ──────────────────────────────────────
   // Configure image tracking BEFORE registering pipelines
-  // NOTE: The correct API is imageTargetData (array of JSON objects), NOT tracking.imageTargets
-  const imagePath = './image-targets/mural_luminance.png'
+  // imagePath must point to a 480x640 image (color or grayscale)
+  // properties describe the crop within that imagePath image
+  const imagePath = './image-targets/mural_color_480x640.png'
 
-  // Fetch the image target metadata and inject the correct image URL
   const imageTargetMetadata = {
     imagePath,
     metadata: {},
     name: IMAGE_TARGET_NAME,
     type: 'PLANAR',
     properties: {
-      left: 125,
+      left: 0,
       top: 0,
-      width: 1616,
-      height: 2155,
+      width: 480,
+      height: 640,
       isRotated: false,
-      originalWidth: 1865,
-      originalHeight: 2155,
+      originalWidth: 480,
+      originalHeight: 640,
     },
   }
 
-  console.log('[GameLoop] Configuring image targets with imagePath:', imagePath)
+  console.log('[GameLoop] Configuring image targets:', imagePath)
 
   XR8.XrController.configure({
     imageTargetData: [imageTargetMetadata],

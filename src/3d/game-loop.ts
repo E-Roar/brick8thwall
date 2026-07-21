@@ -43,7 +43,11 @@ export function initGameLoop() {
     1000
   )
 
-  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
+  const renderer = new THREE.WebGLRenderer({ 
+    alpha: true, 
+    antialias: true,
+    preserveDrawingBuffer: true // Required to allow canvas.captureStream/drawImage
+  })
   renderer.setPixelRatio(window.devicePixelRatio)
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.outputColorSpace = THREE.SRGBColorSpace

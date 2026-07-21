@@ -43,10 +43,7 @@ const Recorder = () => {
   const rafRef = useRef(null)
   const compCanvasRef = useRef(null)
   const compCtxRef = useRef(null)
-  const statusRef = useRef('IDLE')
-
-  // Keep a mutable ref in sync with status so callbacks can read it
-  useEffect(() => { statusRef.current = status }, [status])
+  const isRecordingRef = useRef(false)
 
   // Composite both AR canvases onto an offscreen canvas each frame
   const compositeFrame = useCallback(() => {
@@ -54,6 +51,7 @@ const Recorder = () => {
     const overlay = document.getElementById('threejs-overlay')
     const ctx = compCtxRef.current
     const comp = compCanvasRef.current
+    
     if (!feed || !ctx || !comp) return
 
     // Match dimensions to feed canvas (the AR camera source)
@@ -68,7 +66,7 @@ const Recorder = () => {
       ctx.drawImage(overlay, 0, 0, comp.width, comp.height)
     }
 
-    if (statusRef.current === 'RECORDING') {
+    if (isRecordingRef.current) {
       rafRef.current = requestAnimationFrame(compositeFrame)
     }
   }, [])
@@ -148,11 +146,13 @@ const Recorder = () => {
 
       // 6. Start compositing frames and recording
       setStatus('RECORDING')
+      isRecordingRef.current = true
       setRecordTime(0)
       compositeFrame()
+      
       // Small delay to let first frame render before starting encoder
       setTimeout(() => {
-        recorder.start(1000) // collect data every 1s for smooth memory usage
+        if (isRecordingRef.current) recorder.start(1000) 
       }, 100)
 
       // 7. Timer
@@ -168,10 +168,12 @@ const Recorder = () => {
     } catch (err) {
       console.error('[Recorder] Failed to start recording:', err)
       setStatus('IDLE')
+      isRecordingRef.current = false
     }
   }, [compositeFrame])
 
   const stopRecording = useCallback(() => {
+    isRecordingRef.current = false
     clearInterval(timerRef.current)
     cancelAnimationFrame(rafRef.current)
 

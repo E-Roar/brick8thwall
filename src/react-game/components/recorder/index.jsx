@@ -1,41 +1,82 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import style from './index.module.less'
 
+/**
+ * AR Video Recorder — uses native MediaRecorder API to capture the
+ * composited AR scene (camera feed + Three.js overlay) with optional
+ * microphone audio. Works on Android Chrome and Safari iOS 14.5+.
+ *
+ * Architecture: An offscreen canvas composites #camerafeed and
+ * #threejs-overlay each frame via captureStream(). This avoids any
+ * dependency on 8th Wall's paid MediaRecorder module.
+ */
+
+const MAX_DURATION_S = 60
+
+// Pick a codec that the browser actually supports
+function pickMimeType() {
+  if (typeof MediaRecorder === 'undefined') return null
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm',
+    'video/mp4',             // Safari iOS
+  ]
+  for (const mime of candidates) {
+    if (MediaRecorder.isTypeSupported(mime)) return mime
+  }
+  return '' // let the browser pick
+}
+
 const Recorder = () => {
-  const [status, setStatus] = useState('IDLE') // IDLE, COUNTDOWN, RECORDING, PROCESSING, POPUP
+  const [status, setStatus] = useState('IDLE')
   const [countdown, setCountdown] = useState(3)
   const [recordTime, setRecordTime] = useState(0)
   const [videoUrl, setVideoUrl] = useState(null)
   const [videoBlob, setVideoBlob] = useState(null)
-  const timerRef = useRef(null)
 
-  useEffect(() => {
-    // Configure 8th Wall Media Recorder on mount
-    if (window.XR8 && window.XR8.MediaRecorder) {
-      window.XR8.MediaRecorder.configure({
-        maxDurationMs: 60000, // 60s max
-        enableEndCard: false,
-        requestMic: window.XR8.MediaRecorder.RequestMicOptions.AUTO,
-        onRecordComplete: (blob) => {
-          console.log('[Recorder] Record complete, blob size:', blob.size)
-          const url = URL.createObjectURL(blob)
-          setVideoBlob(blob)
-          setVideoUrl(url)
-          setStatus('POPUP')
-        },
-      })
+  const recorderRef = useRef(null)
+  const chunksRef = useRef([])
+  const timerRef = useRef(null)
+  const rafRef = useRef(null)
+  const compCanvasRef = useRef(null)
+  const compCtxRef = useRef(null)
+  const statusRef = useRef('IDLE')
+
+  // Keep a mutable ref in sync with status so callbacks can read it
+  useEffect(() => { statusRef.current = status }, [status])
+
+  // Composite both AR canvases onto an offscreen canvas each frame
+  const compositeFrame = useCallback(() => {
+    const feed = document.getElementById('camerafeed')
+    const overlay = document.getElementById('threejs-overlay')
+    const ctx = compCtxRef.current
+    const comp = compCanvasRef.current
+    if (!feed || !ctx || !comp) return
+
+    // Match dimensions to feed canvas (the AR camera source)
+    if (comp.width !== feed.width || comp.height !== feed.height) {
+      comp.width = feed.width
+      comp.height = feed.height
+    }
+
+    ctx.clearRect(0, 0, comp.width, comp.height)
+    ctx.drawImage(feed, 0, 0, comp.width, comp.height)
+    if (overlay) {
+      ctx.drawImage(overlay, 0, 0, comp.width, comp.height)
+    }
+
+    if (statusRef.current === 'RECORDING') {
+      rafRef.current = requestAnimationFrame(compositeFrame)
     }
   }, [])
 
-  const startCountdown = () => {
-    if (!window.XR8 || !window.XR8.MediaRecorder) {
-      alert("AR Recorder not ready yet.")
-      return
-    }
+  const startCountdown = useCallback(() => {
     setStatus('COUNTDOWN')
     setCountdown(3)
     let count = 3
-    
     const interval = setInterval(() => {
       count -= 1
       if (count > 0) {
@@ -45,67 +86,142 @@ const Recorder = () => {
         startRecording()
       }
     }, 1000)
-  }
+  }, [])
 
-  const startRecording = () => {
-    setStatus('RECORDING')
-    setRecordTime(0)
-    window.XR8.MediaRecorder.recordVideo()
+  const startRecording = useCallback(async () => {
+    try {
+      // 1. Create offscreen composite canvas
+      if (!compCanvasRef.current) {
+        compCanvasRef.current = document.createElement('canvas')
+        compCtxRef.current = compCanvasRef.current.getContext('2d')
+      }
 
-    timerRef.current = setInterval(() => {
-      setRecordTime((prev) => {
-        if (prev >= 59) {
-          stopRecording()
-          return 60
-        }
-        return prev + 1
-      })
-    }, 1000)
-  }
+      // 2. Get video stream from composite canvas (30fps for perf)
+      const canvasStream = compCanvasRef.current.captureStream(30)
 
-  const stopRecording = () => {
-    if (status !== 'RECORDING') return
-    setStatus('PROCESSING')
+      // 3. Try to get mic audio (non-blocking — silently skip if denied)
+      let micStream = null
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      } catch (e) {
+        console.warn('[Recorder] Mic access denied or unavailable, recording without audio')
+      }
+
+      // 4. Combine streams
+      const tracks = [...canvasStream.getVideoTracks()]
+      if (micStream) {
+        micStream.getAudioTracks().forEach((t) => tracks.push(t))
+      }
+      const combinedStream = new MediaStream(tracks)
+
+      // 5. Create MediaRecorder
+      const mimeType = pickMimeType()
+      const options = { videoBitsPerSecond: 2_500_000 } // 2.5 Mbps — good quality, fast encode
+      if (mimeType) options.mimeType = mimeType
+
+      const recorder = new MediaRecorder(combinedStream, options)
+      chunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
+      }
+
+      recorder.onstop = () => {
+        // Stop mic tracks to release hardware
+        if (micStream) micStream.getTracks().forEach((t) => t.stop())
+
+        const blob = new Blob(chunksRef.current, { type: mimeType || 'video/webm' })
+        console.log('[Recorder] Recording complete, size:', (blob.size / 1024 / 1024).toFixed(2), 'MB')
+        const url = URL.createObjectURL(blob)
+        setVideoBlob(blob)
+        setVideoUrl(url)
+        setStatus('POPUP')
+      }
+
+      recorder.onerror = (e) => {
+        console.error('[Recorder] MediaRecorder error:', e)
+        if (micStream) micStream.getTracks().forEach((t) => t.stop())
+        setStatus('IDLE')
+      }
+
+      recorderRef.current = recorder
+
+      // 6. Start compositing frames and recording
+      setStatus('RECORDING')
+      setRecordTime(0)
+      compositeFrame()
+      // Small delay to let first frame render before starting encoder
+      setTimeout(() => {
+        recorder.start(1000) // collect data every 1s for smooth memory usage
+      }, 100)
+
+      // 7. Timer
+      timerRef.current = setInterval(() => {
+        setRecordTime((prev) => {
+          if (prev >= MAX_DURATION_S - 1) {
+            stopRecording()
+            return MAX_DURATION_S
+          }
+          return prev + 1
+        })
+      }, 1000)
+    } catch (err) {
+      console.error('[Recorder] Failed to start recording:', err)
+      setStatus('IDLE')
+    }
+  }, [compositeFrame])
+
+  const stopRecording = useCallback(() => {
     clearInterval(timerRef.current)
-    window.XR8.MediaRecorder.stopRecordVideo() // stops and triggers onRecordComplete
-  }
+    cancelAnimationFrame(rafRef.current)
 
-  const handleShare = async () => {
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      setStatus('PROCESSING')
+      recorderRef.current.stop()
+    } else {
+      setStatus('IDLE')
+    }
+  }, [])
+
+  const handleShare = useCallback(async () => {
     if (!videoBlob) return
-    const file = new File([videoBlob], "RetroAR_Gameplay.mp4", { type: videoBlob.type })
+    const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm'
+    const file = new File([videoBlob], `RetroAR_Gameplay.${ext}`, { type: videoBlob.type })
     const shareData = {
       files: [file],
       title: 'Retro AR Tetris',
-      text: 'Playing the ultimate Retro AR Brick Game! #AR #RetroGaming #Tetris',
+      text: '🕹️ Playing the ultimate Retro AR Brick Game! #AR #RetroGaming #Tetris #8thWall',
     }
 
     if (navigator.canShare && navigator.canShare(shareData)) {
       try {
         await navigator.share(shareData)
       } catch (err) {
-        console.error('Error sharing', err)
+        console.warn('[Recorder] Share cancelled or failed:', err)
       }
     } else {
-      alert("Native sharing not supported on this device. Use the Save button.")
+      // Fallback: just download
+      handleSave()
     }
-  }
+  }, [videoBlob])
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     if (!videoUrl) return
+    const ext = videoBlob?.type?.includes('mp4') ? 'mp4' : 'webm'
     const a = document.createElement('a')
     a.href = videoUrl
-    a.download = `RetroAR_${Date.now()}.mp4`
+    a.download = `RetroAR_${Date.now()}.${ext}`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-  }
+  }, [videoUrl, videoBlob])
 
-  const closePopup = () => {
-    if (videoUrl) URL.revokeObjectURL(videoUrl) // free memory
+  const closePopup = useCallback(() => {
+    if (videoUrl) URL.revokeObjectURL(videoUrl)
     setVideoUrl(null)
     setVideoBlob(null)
     setStatus('IDLE')
-  }
+  }, [videoUrl])
 
   return (
     <>
@@ -141,13 +257,13 @@ const Recorder = () => {
             
             <div className={style.actionButtons}>
               <button className={style.shareBtn} onClick={handleShare}>
-                📱 Share (Insta, TikTok, WA)
+                📱 Share (Insta, TikTok, WA, X)
               </button>
               <button className={style.saveBtn} onClick={handleSave}>
                 💾 Save to Gallery
               </button>
               <button className={style.closeBtn} onClick={closePopup}>
-                ❌ Close
+                ✕ Close
               </button>
             </div>
           </div>

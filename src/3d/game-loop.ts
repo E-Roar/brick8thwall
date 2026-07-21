@@ -392,13 +392,32 @@ export function initGameLoop() {
     console.log('[GameLoop] XR8 session started')
   }
 
-  // ── Splash Screen → Auto Start Session ───────────────────────────
+  // ── Splash Screen → Start Session ───────────────────────────────
   const splash = document.getElementById('ar-splash')
   const status = document.getElementById('splash-status')
-  if (status) status.innerText = 'Initializing AR Camera... Please Wait'
   
-  // Start immediately!
-  startXR()
+  if (status) status.innerText = 'Tap anywhere to start AR'
+
+  const handleStart = () => {
+    console.log('[GameLoop] User gesture detected — starting XR')
+    if (status) status.innerText = 'Initializing AR Camera... Please Wait'
+    
+    // Disable multiple taps
+    if (splash) {
+      splash.removeEventListener('click', handleStart)
+      splash.removeEventListener('touchstart', handleStart)
+    }
+    startXR()
+  }
+
+  // Apple strictly requires a user gesture to access the camera/motion sensors.
+  if (splash) {
+    splash.addEventListener('click', handleStart)
+    splash.addEventListener('touchstart', handleStart)
+  } else {
+    // Fallback if splash is missing
+    startXR()
+  }
 
   // ── Window Resize ───────────────────────────────────────────────
   window.addEventListener('resize', () => {

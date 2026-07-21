@@ -99,6 +99,14 @@ export function initGameLoop() {
   }
 
   const gltfLoader = new GLTFLoader()
+  const textureLoader = new THREE.TextureLoader()
+
+  // Load the external customizable texture
+  const customTexture = textureLoader.load('./assets/console_texture.png', (tex) => {
+    tex.flipY = false // GLTF models expect UVs with flipY=false
+    if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace
+    else tex.encoding = 3001 // THREE.sRGBEncoding fallback
+  })
 
   gltfLoader.load(
     './assets/ImageTracking.glb',
@@ -111,6 +119,13 @@ export function initGameLoop() {
           node.visible = true
           if (node.name === 'screen_plane') {
             screen.patchMesh(mesh)
+          } else {
+            // Apply customizable texture to the console chassis
+            const mat = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+            if (mat && (mat as THREE.MeshStandardMaterial).map !== undefined) {
+              ;(mat as THREE.MeshStandardMaterial).map = customTexture
+              mat.needsUpdate = true
+            }
           }
         }
       })

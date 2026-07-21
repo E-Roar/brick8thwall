@@ -13,13 +13,14 @@ export default defineConfig({
       targets: [
         {
           src: 'image-targets/mural.json',
-          dest: 'image-targets',
+          dest: '.',
         },
         {
           src: 'image-targets/mural_luminance.png',
-          dest: 'image-targets',
+          dest: '.',
         },
       ],
+      structured: true,
     }),
     VitePWA({
       registerType: 'autoUpdate',

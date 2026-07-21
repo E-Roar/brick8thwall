@@ -79,7 +79,12 @@ export function initGameLoop() {
   const screen = createScreenRenderer()
 
   // ── GLB Loading ─────────────────────────────────────────────────
-  let trackedContent: THREE.Object3D | null = null
+  // We wrap the loaded model in a targetGroup so we can apply
+  // manual calibration offsets (position, rotation, scale) to the model
+  // independently of the 8th Wall SLAM pose updates applied to the group.
+  const targetGroup = new THREE.Group()
+  targetGroup.visible = false
+  scene.add(targetGroup)
   let glbLoaded = false
 
   new GLTFLoader().load(
@@ -90,45 +95,47 @@ export function initGameLoop() {
       gltf.scene.traverse((node) => {
         const mesh = node as THREE.Mesh
         if ((mesh as any).isMesh) {
-          console.log('[GameLoop]   Mesh:', node.name, 'visible:', node.visible)
-          // Make sure all meshes are visible
           node.visible = true
           if (node.name === 'screen_plane') {
             screen.patchMesh(mesh)
-            console.log('[GameLoop]   → screen_plane patched for texture')
           }
         }
       })
 
-      trackedContent = gltf.scene
-      trackedContent.visible = false
-      scene.add(trackedContent)
+      const modelMesh = gltf.scene
+      targetGroup.add(modelMesh)
       glbLoaded = true
-      console.log('[GameLoop] Tracked content added to scene (hidden until image found)')
+      console.log('[GameLoop] Tracked content added to targetGroup')
+
+      // Create Calibration UI to adjust modelMesh inside targetGroup
+      createCalibrationUI(modelMesh)
     },
     (progress) => {
       if (progress.total > 0) {
         const pct = Math.round((progress.loaded / progress.total) * 100)
         console.log(`[GameLoop] GLB loading: ${pct}%`)
+        const progressEl = document.getElementById('loading-progress')
+        if (progressEl) progressEl.innerText = `Loading Assets... ${pct}%`
       }
     },
     (err) => {
       console.error('[GameLoop] Failed to load GLB:', err)
+      const progressEl = document.getElementById('loading-progress')
+      if (progressEl) progressEl.innerText = 'Error loading assets.'
     }
   )
 
   // ── Helpers to apply pose data ──────────────────────────────────
   function applyPose(detail: any) {
-    if (!trackedContent) return
     if (detail.position) {
-      trackedContent.position.set(
+      targetGroup.position.set(
         detail.position.x,
         detail.position.y,
         detail.position.z
       )
     }
     if (detail.rotation) {
-      trackedContent.quaternion.set(
+      targetGroup.quaternion.set(
         detail.rotation.x,
         detail.rotation.y,
         detail.rotation.z,
@@ -136,8 +143,75 @@ export function initGameLoop() {
       )
     }
     if (detail.scale != null) {
-      trackedContent.scale.set(detail.scale, detail.scale, detail.scale)
+      targetGroup.scale.set(detail.scale, detail.scale, detail.scale)
     }
+  }
+
+  // ── Calibration UI ────────────────────────────────────────────────
+  function createCalibrationUI(model: THREE.Object3D) {
+    const ui = document.createElement('div')
+    ui.style.position = 'fixed'
+    ui.style.top = '10px'
+    ui.style.right = '10px'
+    ui.style.zIndex = '10001'
+    ui.style.background = 'rgba(0,0,0,0.8)'
+    ui.style.color = 'lime'
+    ui.style.padding = '10px'
+    ui.style.fontFamily = 'monospace'
+    ui.style.fontSize = '12px'
+    ui.style.borderRadius = '5px'
+    ui.style.pointerEvents = 'auto'
+    
+    // Initial offsets
+    const state = {
+      px: 0, py: 0, pz: 0,
+      rx: 0, ry: 0, rz: 0,
+      s: 1
+    }
+
+    const valDisplay = document.createElement('pre')
+    valDisplay.style.margin = '5px 0 0 0'
+
+    const updateModel = () => {
+      model.position.set(state.px, state.py, state.pz)
+      model.rotation.set(
+        THREE.MathUtils.degToRad(state.rx),
+        THREE.MathUtils.degToRad(state.ry),
+        THREE.MathUtils.degToRad(state.rz)
+      )
+      model.scale.set(state.s, state.s, state.s)
+      valDisplay.innerText = JSON.stringify(state, null, 2)
+    }
+
+    const addControl = (label: string, key: keyof typeof state, step: number) => {
+      const container = document.createElement('div')
+      container.style.marginBottom = '5px'
+      container.innerText = label + ' '
+      
+      const btnMinus = document.createElement('button')
+      btnMinus.innerText = '-'
+      btnMinus.onclick = () => { state[key] = parseFloat((state[key] - step).toFixed(3)); updateModel() }
+      
+      const btnPlus = document.createElement('button')
+      btnPlus.innerText = '+'
+      btnPlus.onclick = () => { state[key] = parseFloat((state[key] + step).toFixed(3)); updateModel() }
+
+      container.appendChild(btnMinus)
+      container.appendChild(btnPlus)
+      ui.appendChild(container)
+    }
+
+    addControl('PosX', 'px', 0.05)
+    addControl('PosY', 'py', 0.05)
+    addControl('PosZ', 'pz', 0.05)
+    addControl('RotX', 'rx', 5)
+    addControl('RotY', 'ry', 5)
+    addControl('RotZ', 'rz', 5)
+    addControl('Scale', 's', 0.05)
+
+    ui.appendChild(valDisplay)
+    document.body.appendChild(ui)
+    updateModel()
   }
 
   // ── Custom Pipeline Module — Three.js Rendering + Image Tracking ──
@@ -157,6 +231,10 @@ export function initGameLoop() {
         renderer.setSize(canvasWidth, canvasHeight)
         camera.aspect = canvasWidth / canvasHeight
         camera.updateProjectionMatrix()
+        
+        // Hide splash screen only when camera is truly ready
+        const splash = document.getElementById('ar-splash')
+        if (splash) splash.style.display = 'none'
       },
 
       // Called every frame with CPU processing results (camera intrinsics)
@@ -217,10 +295,10 @@ export function initGameLoop() {
               scale: detail.scale,
             }))
 
-            if (detail.name === IMAGE_TARGET_NAME && trackedContent) {
-              trackedContent.visible = true
+            if (detail.name === IMAGE_TARGET_NAME) {
+              targetGroup.visible = true
               applyPose(detail)
-              console.log('[Pipeline] Mesh VISIBLE at', trackedContent.position.toArray())
+              console.log('[Pipeline] Mesh VISIBLE at', targetGroup.position.toArray())
             }
           },
         },
@@ -228,7 +306,7 @@ export function initGameLoop() {
           event: 'reality.imageupdated',
           process: (event: any) => {
             const detail = event.detail || event
-            if (detail.name === IMAGE_TARGET_NAME && trackedContent) {
+            if (detail.name === IMAGE_TARGET_NAME) {
               applyPose(detail)
             }
           },
@@ -238,8 +316,8 @@ export function initGameLoop() {
           process: (event: any) => {
             const detail = event.detail || event
             console.log('[Pipeline] reality.imagelost:', detail.name)
-            if (detail.name === IMAGE_TARGET_NAME && trackedContent) {
-              trackedContent.visible = false
+            if (detail.name === IMAGE_TARGET_NAME) {
+              targetGroup.visible = false
             }
           },
         },
@@ -309,12 +387,9 @@ export function initGameLoop() {
       threejsPipelineModule(),
     ]
 
-    // Add XRExtras modules if available
+    // Add XRExtras modules if available (do NOT add Loading, it hides our splash prematurely)
     if (XRExtras?.FullWindowCanvas?.pipelineModule) {
       pipelineModules.push(XRExtras.FullWindowCanvas.pipelineModule())
-    }
-    if (XRExtras?.Loading?.pipelineModule) {
-      pipelineModules.push(XRExtras.Loading.pipelineModule())
     }
     if (XRExtras?.RuntimeError?.pipelineModule) {
       pipelineModules.push(XRExtras.RuntimeError.pipelineModule())
@@ -332,9 +407,6 @@ export function initGameLoop() {
       allowedDevices: XR8.XrConfig.device().ANY,
     })
 
-    // Hide splash
-    const splash = document.getElementById('ar-splash')
-    if (splash) splash.style.display = 'none'
     console.log('[GameLoop] XR8 session started')
   }
 
@@ -343,6 +415,14 @@ export function initGameLoop() {
 
   const handleStart = () => {
     console.log('[GameLoop] User tapped splash — starting XR')
+    const status = document.getElementById('splash-status')
+    if (status) status.innerText = 'Initializing AR Camera... Please Wait'
+    
+    // Disable multiple taps
+    if (splash) {
+      splash.removeEventListener('click', handleStart)
+      splash.removeEventListener('touchstart', handleStart)
+    }
     startXR()
   }
 

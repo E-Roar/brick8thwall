@@ -54,10 +54,15 @@ const Recorder = () => {
     
     if (!feed || !ctx || !comp) return
 
-    // Match dimensions to feed canvas (the AR camera source)
-    if (comp.width !== feed.width || comp.height !== feed.height) {
-      comp.width = feed.width
-      comp.height = feed.height
+    // Downscale resolution for performance (max 720p width)
+    const MAX_WIDTH = 720
+    const scale = Math.min(1, MAX_WIDTH / feed.width)
+    const targetW = Math.round(feed.width * scale)
+    const targetH = Math.round(feed.height * scale)
+
+    if (comp.width !== targetW || comp.height !== targetH) {
+      comp.width = targetW
+      comp.height = targetH
     }
 
     ctx.clearRect(0, 0, comp.width, comp.height)
@@ -202,8 +207,7 @@ const Recorder = () => {
         console.warn('[Recorder] Share cancelled or failed:', err)
       }
     } else {
-      // Fallback: just download
-      handleSave()
+      alert("Native social sharing (Files) is not supported on this browser/OS. Please use the 'Save to Gallery' button instead and upload manually.")
     }
   }, [videoBlob])
 

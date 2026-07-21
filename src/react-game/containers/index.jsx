@@ -12,6 +12,7 @@ import Logo from '../components/logo'
 import BreakoutPanel from '../components/breakout-panel'
 import RacingPanel from '../components/rancing-panel'
 import TankPanel from '../components/tank-panel'
+import Recorder from '../components/recorder'
 
 const App = () => {
   const { levels, speed, music, pause, game, games } = useSelector((state) => ({
@@ -25,6 +26,7 @@ const App = () => {
 
   return (
     <>
+      <Recorder />
       {/* Hidden game panels — Redux state is rendered to 3D canvas via BrickGameScreen.ts */}
       <div style={{ display: 'none' }}>
         {games[game].name === 'tetris' && <TetrisPanel />}

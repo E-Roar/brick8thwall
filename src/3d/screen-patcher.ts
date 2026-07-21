@@ -43,9 +43,9 @@ export function createScreenRenderer() {
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i)
         const y = pos.getY(i)
-        // Map local X/Y to 0..1 UV space
+        // Map local X/Y to 0..1 UV space, invert Y to fix upside-down rendering
         uvs[i * 2] = (x - bbox.min.x) / (size.x || 1)
-        uvs[i * 2 + 1] = (y - bbox.min.y) / (size.y || 1)
+        uvs[i * 2 + 1] = 1.0 - ((y - bbox.min.y) / (size.y || 1))
       }
       mesh.geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
     }

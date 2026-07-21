@@ -48,6 +48,10 @@ const Recorder = () => {
         setProgress(Math.round(p * 100))
       })
 
+      ffmpeg.on('log', ({ message }) => {
+        console.log('[FFmpeg]', message)
+      })
+
       // Load lightweight non-SharedArrayBuffer core from unpkg for maximum mobile compatibility
       try {
         await ffmpeg.load({
@@ -72,8 +76,9 @@ const Recorder = () => {
 
     const MAX_WIDTH = 720
     const scale = Math.min(1, MAX_WIDTH / feed.width)
-    const targetW = Math.round(feed.width * scale)
-    const targetH = Math.round(feed.height * scale)
+    // IMPORTANT: libx264 strictly requires width and height to be divisible by 2!
+    const targetW = Math.floor((feed.width * scale) / 2) * 2
+    const targetH = Math.floor((feed.height * scale) / 2) * 2
 
     if (comp.width !== targetW || comp.height !== targetH) {
       comp.width = targetW

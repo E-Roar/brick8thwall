@@ -7,16 +7,12 @@
   <title>Retro AR Tetris</title>
   <meta property="og:title" content="Retro AR Tetris">
   <meta name="description" content="Retro AR Tetris — Brick Game in Augmented Reality">
-  <meta property="og:description" content="Retro AR Tetris — Brick Game in Augmented Reality">
-  <meta name="robots" content="index,follow">
 
-  <!-- 8th Wall Engine (distributed binary with SLAM + image targets) -->
+  <!-- 8th Wall Engine -->
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
           async crossorigin="anonymous"
           data-preload-chunks="slam"></script>
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js"
-          crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@8thwall/landing-page@1/dist/landing-page.js"
           crossorigin="anonymous"></script>
 
   <link rel="stylesheet" href="./src/styles/style.css">
@@ -24,6 +20,14 @@
 <body>
   <!-- 8th Wall camera feed -->
   <canvas id="camerafeed"></canvas>
+
+  <!-- Splash screen (hides when AR starts) -->
+  <div id="ar-splash">
+    <div class="splash-content">
+      <h1>Retro AR Tetris</h1>
+      <p>Tap to start AR</p>
+    </div>
+  </div>
 
   <!-- React game overlay (keyboard, hidden game panels) -->
   <div id="react-root"></div>

@@ -1,18 +1,22 @@
 /**
  * Game Loop — sets up Three.js scene, loads the GLB model,
- * handles 8th Wall image tracking events, and runs the render loop.
+ * hooks into 8th Wall's pipeline-based frame loop, and handles image tracking.
+ *
+ * Correct 8th Wall API: XR8.addCameraPipelineModules([...]) + XR8.run({canvas})
  */
 
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { createScreenRenderer } from './screen-patcher'
 
-// Image target — runtime processing (no CLI-generated metadata needed)
 const IMAGE_TARGET_NAME = 'mural'
 const IMAGE_TARGET_SRC = './assets/mural.png'
 const IMAGE_TARGET_UUID = 'mural-8thwall-target'
 
 export function initGameLoop() {
+  const XR8 = (window as any).XR8
+  const XRExtras = (window as any).XRExtras
+
   // ── Three.js Setup ──────────────────────────────────────────────
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(
@@ -29,7 +33,7 @@ export function initGameLoop() {
   renderer.toneMappingExposure = 1.0
   document.body.appendChild(renderer.domElement)
 
-  // Position renderer canvas above camera feed
+  // Style the Three.js canvas on top of camera feed
   renderer.domElement.style.position = 'fixed'
   renderer.domElement.style.top = '0'
   renderer.domElement.style.left = '0'
@@ -39,11 +43,10 @@ export function initGameLoop() {
   renderer.domElement.style.pointerEvents = 'none'
 
   // Lighting
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
-  scene.add(ambientLight)
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-  directionalLight.position.set(0, 5, 5)
-  scene.add(directionalLight)
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6))
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8)
+  dirLight.position.set(0, 5, 5)
+  scene.add(dirLight)
 
   // ── Screen Renderer ─────────────────────────────────────────────
   const screen = createScreenRenderer()
@@ -51,13 +54,11 @@ export function initGameLoop() {
   // ── GLB Loading ─────────────────────────────────────────────────
   let trackedContent: THREE.Object3D | null = null
 
-  const loader = new GLTFLoader()
-  loader.load(
+  new GLTFLoader().load(
     './assets/ImageTracking.glb',
     (gltf) => {
       console.log('[GameLoop] GLB loaded —', gltf.scene.children.length, 'children')
 
-      // Patch screen_plane material with canvas texture
       gltf.scene.traverse((node) => {
         if ((node as any).isMesh && node.name === 'screen_plane') {
           screen.patchMesh(node as THREE.Mesh)
@@ -75,6 +76,16 @@ export function initGameLoop() {
     }
   )
 
+  // ── Custom Pipeline Module — Three.js Rendering ─────────────────
+  const threejsPipelineModule = () => ({
+    name: 'brickgame-threejs',
+    onRender: () => {
+      screen.drawReduxState()
+      renderer.render(scene, camera)
+    },
+    onUpdate: () => {},
+  })
+
   // ── Image Tracking Events ───────────────────────────────────────
   window.addEventListener('reality.imagefound', (e: any) => {
     const detail = e.detail || e
@@ -91,11 +102,8 @@ export function initGameLoop() {
     if (detail.name === IMAGE_TARGET_NAME || detail.id === IMAGE_TARGET_UUID) {
       if (!trackedContent) return
 
-      // Extract camera pose from the tracking event
-      // 8th Wall provides camera position/rotation relative to the image
       const pose = detail.pose || detail.cameraPose
       if (pose) {
-        // Position the tracked content so it appears where the image is
         trackedContent.position.set(
           pose.position?.x ?? 0,
           pose.position?.y ?? 0,
@@ -120,41 +128,70 @@ export function initGameLoop() {
     }
   })
 
-  // ── 8th Wall Frame Loop ────────────────────────────────────────
-  const waitForXR = () => {
-    if (typeof (window as any).XR8 === 'undefined') {
-      requestAnimationFrame(waitForXR)
-      return
-    }
-
-    console.log('[GameLoop] XR8 detected — hooking into frame loop')
-
-    // Configure image tracking with runtime processing
-    ;(window as any).XR8.XrController.configure({
-      tracking: {
-        imageTargets: {
-          targets: [
-            {
-              name: IMAGE_TARGET_NAME,
-              src: IMAGE_TARGET_SRC,
-              uuid: IMAGE_TARGET_UUID,
-            },
-          ],
-        },
+  // ── 8th Wall Session Setup ──────────────────────────────────────
+  // Configure image tracking BEFORE registering pipelines
+  XR8.XrController.configure({
+    tracking: {
+      imageTargets: {
+        targets: [
+          {
+            name: IMAGE_TARGET_NAME,
+            src: IMAGE_TARGET_SRC,
+            uuid: IMAGE_TARGET_UUID,
+          },
+        ],
       },
-    })
+    },
+  })
 
-    // Add camera renderer module — called every frame
-    ;(window as any).XR8.addCameraRendererModule({
-      onRender: () => {
-        screen.drawReduxState()
-        renderer.render(scene, camera)
-      },
-      onCameraColorChange: () => {},
-    })
+  // Register pipeline modules — GlTextureRenderer MUST be first
+  const pipelineModules = [
+    XR8.GlTextureRenderer.pipelineModule(),
+    threejsPipelineModule(),
+  ]
+
+  // Add XrController for image tracking if available
+  if (XR8.XrController && XR8.XrController.pipelineModule) {
+    pipelineModules.splice(1, 0, XR8.XrController.pipelineModule())
   }
 
-  waitForXR()
+  // Add XRExtras modules if available
+  if (XRExtras) {
+    if (XRExtras.FullWindowCanvas && XRExtras.FullWindowCanvas.pipelineModule) {
+      pipelineModules.push(XRExtras.FullWindowCanvas.pipelineModule())
+    }
+    if (XRExtras.Loading && XRExtras.Loading.pipelineModule) {
+      pipelineModules.push(XRExtras.Loading.pipelineModule())
+    }
+    if (XRExtras.RuntimeError && XRExtras.RuntimeError.pipelineModule) {
+      pipelineModules.push(XRExtras.RuntimeError.pipelineModule())
+    }
+  }
+
+  XR8.addCameraPipelineModules(pipelineModules)
+
+  // ── Splash Screen → Start Session ───────────────────────────────
+  const splash = document.getElementById('ar-splash')
+
+  const startSession = () => {
+    console.log('[GameLoop] Starting XR8 session')
+
+    XR8.run({
+      canvas: document.getElementById('camerafeed'),
+      allowedDevices: XR8.XrConfig.device().ANY,
+    })
+
+    if (splash) {
+      splash.style.display = 'none'
+    }
+  }
+
+  if (splash) {
+    splash.addEventListener('click', startSession)
+    splash.addEventListener('touchstart', startSession)
+  } else {
+    startSession()
+  }
 
   // ── Window Resize ───────────────────────────────────────────────
   window.addEventListener('resize', () => {

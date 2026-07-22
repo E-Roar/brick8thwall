@@ -1,10 +1,19 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { FFmpeg } from '@ffmpeg/ffmpeg'
-import { fetchFile } from '@ffmpeg/util'
 import style from './index.module.less'
+
+/**
+ * AR Video Recorder — uses native MediaRecorder API to capture the
+ * composited AR scene (camera feed + Three.js overlay) with optional
+ * microphone audio. Works on Android Chrome and Safari iOS 14.5+.
+ *
+ * Architecture: An offscreen canvas composites #camerafeed and
+ * #threejs-overlay each frame via captureStream(). This avoids any
+ * dependency on 8th Wall's paid MediaRecorder module.
+ */
 
 const MAX_DURATION_S = 60
 
+// Pick a codec that the browser actually supports
 function pickMimeType() {
   if (typeof MediaRecorder === 'undefined') return null
   const candidates = [
@@ -13,12 +22,12 @@ function pickMimeType() {
     'video/webm;codecs=vp9',
     'video/webm;codecs=vp8',
     'video/webm',
-    'video/mp4',             // Safari iOS natively records MP4 (AVC1)
+    'video/mp4',             // Safari iOS
   ]
   for (const mime of candidates) {
     if (MediaRecorder.isTypeSupported(mime)) return mime
   }
-  return ''
+  return '' // let the browser pick
 }
 
 const Recorder = () => {
@@ -27,7 +36,6 @@ const Recorder = () => {
   const [recordTime, setRecordTime] = useState(0)
   const [videoUrl, setVideoUrl] = useState(null)
   const [videoBlob, setVideoBlob] = useState(null)
-  const [progress, setProgress] = useState(0) // Transcoding progress
 
   const recorderRef = useRef(null)
   const chunksRef = useRef([])
@@ -36,36 +44,8 @@ const Recorder = () => {
   const compCanvasRef = useRef(null)
   const compCtxRef = useRef(null)
   const isRecordingRef = useRef(false)
-  const ffmpegRef = useRef(null)
 
-  // Initialize FFmpeg on mount
-  useEffect(() => {
-    const initFFmpeg = async () => {
-      const ffmpeg = new FFmpeg()
-      ffmpegRef.current = ffmpeg
-      
-      ffmpeg.on('progress', ({ progress: p }) => {
-        setProgress(Math.round(p * 100))
-      })
-
-      ffmpeg.on('log', ({ message }) => {
-        console.log('[FFmpeg]', message)
-      })
-
-      // Load lightweight non-SharedArrayBuffer core from unpkg for maximum mobile compatibility
-      try {
-        await ffmpeg.load({
-          coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js',
-          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm',
-        })
-        console.log('[Recorder] FFmpeg core loaded')
-      } catch (err) {
-        console.warn('[Recorder] FFmpeg failed to preload:', err)
-      }
-    }
-    initFFmpeg()
-  }, [])
-
+  // Composite both AR canvases onto an offscreen canvas each frame
   const compositeFrame = useCallback(() => {
     const feed = document.getElementById('camerafeed')
     const overlay = document.getElementById('threejs-overlay')
@@ -74,11 +54,11 @@ const Recorder = () => {
     
     if (!feed || !ctx || !comp) return
 
+    // Downscale resolution for performance (max 720p width)
     const MAX_WIDTH = 720
     const scale = Math.min(1, MAX_WIDTH / feed.width)
-    // IMPORTANT: libx264 strictly requires width and height to be divisible by 2!
-    const targetW = Math.floor((feed.width * scale) / 2) * 2
-    const targetH = Math.floor((feed.height * scale) / 2) * 2
+    const targetW = Math.round(feed.width * scale)
+    const targetH = Math.round(feed.height * scale)
 
     if (comp.width !== targetW || comp.height !== targetH) {
       comp.width = targetW
@@ -113,26 +93,33 @@ const Recorder = () => {
 
   const startRecording = useCallback(async () => {
     try {
+      // 1. Create offscreen composite canvas
       if (!compCanvasRef.current) {
         compCanvasRef.current = document.createElement('canvas')
         compCtxRef.current = compCanvasRef.current.getContext('2d')
       }
 
+      // 2. Get video stream from composite canvas (30fps for perf)
       const canvasStream = compCanvasRef.current.captureStream(30)
 
+      // 3. Try to get mic audio (non-blocking — silently skip if denied)
       let micStream = null
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       } catch (e) {
-        console.warn('[Recorder] Mic access denied')
+        console.warn('[Recorder] Mic access denied or unavailable, recording without audio')
       }
 
+      // 4. Combine streams
       const tracks = [...canvasStream.getVideoTracks()]
-      if (micStream) micStream.getAudioTracks().forEach((t) => tracks.push(t))
+      if (micStream) {
+        micStream.getAudioTracks().forEach((t) => tracks.push(t))
+      }
       const combinedStream = new MediaStream(tracks)
 
+      // 5. Create MediaRecorder
       const mimeType = pickMimeType()
-      const options = { videoBitsPerSecond: 2_500_000 }
+      const options = { videoBitsPerSecond: 2_500_000 } // 2.5 Mbps — good quality, fast encode
       if (mimeType) options.mimeType = mimeType
 
       const recorder = new MediaRecorder(combinedStream, options)
@@ -142,45 +129,16 @@ const Recorder = () => {
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
       }
 
-      recorder.onstop = async () => {
+      recorder.onstop = () => {
+        // Stop mic tracks to release hardware
         if (micStream) micStream.getTracks().forEach((t) => t.stop())
-        setStatus('PROCESSING')
-        setProgress(0)
 
-        try {
-          const rawBlob = new Blob(chunksRef.current, { type: mimeType || 'video/webm' })
-          const isMp4 = mimeType && mimeType.includes('mp4')
-          let finalBlob = rawBlob
-
-          // Safari natively records MP4, so we skip the massive CPU overhead of FFmpeg.
-          // Android Chrome records WebM, which WhatsApp rejects, so we transcode it.
-          if (!isMp4) {
-            console.log('[Recorder] Transcoding WebM to MP4...')
-            const ffmpeg = ffmpegRef.current
-            if (!ffmpeg.loaded) {
-              await ffmpeg.load({
-                coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js',
-                wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm',
-              })
-            }
-
-            await ffmpeg.writeFile('input.webm', await fetchFile(rawBlob))
-            // Encode using ultrafast preset for mobile CPU limits
-            await ffmpeg.exec(['-i', 'input.webm', '-preset', 'ultrafast', '-c:v', 'libx264', '-c:a', 'aac', '-b:v', '2500k', 'output.mp4'])
-            
-            const data = await ffmpeg.readFile('output.mp4')
-            finalBlob = new Blob([data.buffer], { type: 'video/mp4' })
-          }
-
-          const url = URL.createObjectURL(finalBlob)
-          setVideoBlob(finalBlob)
-          setVideoUrl(url)
-          setStatus('POPUP')
-        } catch (err) {
-          console.error('[Recorder] Processing failed:', err)
-          alert("Video processing failed. Please try again.")
-          setStatus('IDLE')
-        }
+        const blob = new Blob(chunksRef.current, { type: mimeType || 'video/webm' })
+        console.log('[Recorder] Recording complete, size:', (blob.size / 1024 / 1024).toFixed(2), 'MB')
+        const url = URL.createObjectURL(blob)
+        setVideoBlob(blob)
+        setVideoUrl(url)
+        setStatus('POPUP')
       }
 
       recorder.onerror = (e) => {
@@ -191,15 +149,18 @@ const Recorder = () => {
 
       recorderRef.current = recorder
 
+      // 6. Start compositing frames and recording
       setStatus('RECORDING')
       isRecordingRef.current = true
       setRecordTime(0)
       compositeFrame()
       
+      // Small delay to let first frame render before starting encoder
       setTimeout(() => {
         if (isRecordingRef.current) recorder.start(1000) 
       }, 100)
 
+      // 7. Timer
       timerRef.current = setInterval(() => {
         setRecordTime((prev) => {
           if (prev >= MAX_DURATION_S - 1) {
@@ -290,7 +251,7 @@ const Recorder = () => {
         )}
 
         {status === 'PROCESSING' && (
-          <div className={style.processingText}>Processing... {progress}%</div>
+          <div className={style.processingText}>Processing...</div>
         )}
       </div>
 

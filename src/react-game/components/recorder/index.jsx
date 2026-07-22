@@ -17,12 +17,10 @@ const MAX_DURATION_S = 60
 function pickMimeType() {
   if (typeof MediaRecorder === 'undefined') return null
   const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
+    'video/mp4',               // Safari iOS natively records perfect MP4/H264
+    'video/webm;codecs=h264',  // Android Chrome (forces H.264 hardware encoder)
+    'video/webm;codecs=vp8',   // Fallback
     'video/webm',
-    'video/mp4',             // Safari iOS
   ]
   for (const mime of candidates) {
     if (MediaRecorder.isTypeSupported(mime)) return mime
@@ -192,8 +190,8 @@ const Recorder = () => {
 
   const handleShare = useCallback(async () => {
     if (!videoBlob) return
-    const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm'
-    const file = new File([videoBlob], `RetroAR_Gameplay.${ext}`, { type: videoBlob.type })
+    // We force .mp4 extension so WhatsApp/Instagram parse the H264 stream correctly
+    const file = new File([videoBlob], `RetroAR_Gameplay.mp4`, { type: 'video/mp4' })
     const shareData = {
       files: [file],
       title: 'Retro AR Tetris',
@@ -213,14 +211,13 @@ const Recorder = () => {
 
   const handleSave = useCallback(() => {
     if (!videoUrl) return
-    const ext = videoBlob?.type?.includes('mp4') ? 'mp4' : 'webm'
     const a = document.createElement('a')
     a.href = videoUrl
-    a.download = `RetroAR_${Date.now()}.${ext}`
+    a.download = `RetroAR_${Date.now()}.mp4`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-  }, [videoUrl, videoBlob])
+  }, [videoUrl])
 
   const closePopup = useCallback(() => {
     if (videoUrl) URL.revokeObjectURL(videoUrl)

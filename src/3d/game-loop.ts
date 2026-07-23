@@ -14,6 +14,12 @@
  * 5. XR8.run({ canvas })
  * 6. Handle reality.imagefound / reality.imageupdated / reality.imagelost
  *    via pipeline module LISTENERS (not window events!)
+ *
+ * iOS Safari Fixes:
+ * - Explicit DeviceMotionEvent.requestPermission() for iOS 13+
+ * - Guard against touchstart + click double-firing
+ * - Error boundary around XR8.run() with user-visible feedback
+ * - Properly await async operations before proceeding
  */
 
 import * as THREE from 'three'
@@ -322,10 +328,42 @@ export function initGameLoop() {
     }
   }
 
+  // ── iOS Motion Permission ──────────────────────────────────────
+  // iOS 13+ requires explicit user-gesture-triggered permission for
+  // DeviceMotionEvent. Without this, 8th Wall's SLAM will not work
+  // because the gyroscope/accelerometer data is blocked.
+  async function requestMotionPermissionIOS(): Promise<boolean> {
+    const DME = (window as any).DeviceMotionEvent
+    if (DME && typeof DME.requestPermission === 'function') {
+      try {
+        const response = await DME.requestPermission()
+        console.log('[GameLoop] DeviceMotionEvent permission:', response)
+        return response === 'granted'
+      } catch (err) {
+        console.error('[GameLoop] DeviceMotionEvent.requestPermission() error:', err)
+        return false
+      }
+    }
+    // Not iOS or old iOS — no permission needed
+    return true
+  }
+
   // ── 8th Wall Session Setup ──────────────────────────────────────
 
   const startXR = async () => {
-    // 1. Fetch the CLI-generated image target JSON
+    const status = document.getElementById('splash-status')
+
+    // 1. Request iOS motion permission FIRST (must be in user gesture context)
+    if (status) status.innerText = 'Requesting sensor access...'
+    const motionOk = await requestMotionPermissionIOS()
+    if (!motionOk) {
+      console.warn('[GameLoop] Motion permission denied — AR tracking may not work')
+      // Continue anyway — XR8 may still work with camera-only tracking
+    }
+
+    if (status) status.innerText = 'Loading AR engine...'
+
+    // 2. Fetch the CLI-generated image target JSON
     let imageTargetJson
     try {
       const resp = await fetch('./image-targets/mural.json')
@@ -339,10 +377,11 @@ export function initGameLoop() {
       }))
     } catch (err) {
       console.error('[GameLoop] Failed to fetch mural.json:', err)
+      if (status) status.innerText = 'Error loading image target data.'
       return
     }
 
-    // 2. Build the image target data for the engine
+    // 3. Build the image target data for the engine
     const imageTargetData = {
       ...imageTargetJson,
       imagePath: imageTargetJson.imagePath,
@@ -353,13 +392,13 @@ export function initGameLoop() {
     console.log('[GameLoop] Configuring imageTargetData:',
       JSON.stringify({ name: imageTargetData.name, imagePath: imageTargetData.imagePath, type: imageTargetData.type }))
 
-    // 3. Configure image targets BEFORE adding pipeline modules
+    // 4. Configure image targets BEFORE adding pipeline modules
     XR8.XrController.configure({
       imageTargetData: [imageTargetData],
     })
     console.log('[GameLoop] XR8.XrController.configure() called')
 
-    // 4. Register pipeline modules in the correct order
+    // 5. Register pipeline modules in the correct order
     //    GlTextureRenderer MUST be first (draws camera feed to #camerafeed canvas)
     //    XrController MUST come before our custom module (populates processCpuResult)
     //    Our custom module comes last (reads processCpuResult + renders Three.js to overlay)
@@ -381,39 +420,67 @@ export function initGameLoop() {
     console.log('[GameLoop] Pipeline modules registered:',
       pipelineModules.map((m: any) => m.name || 'unnamed'))
 
-    // 5. Start the XR8 session
+    // 6. Start the XR8 session
+    if (status) status.innerText = 'Starting camera...'
+
     const feedCanvas = document.getElementById('camerafeed') as HTMLCanvasElement
     console.log('[GameLoop] Calling XR8.run() with canvas:', feedCanvas?.id)
-    XR8.run({
-      canvas: feedCanvas,
-      allowedDevices: XR8.XrConfig.device().ANY,
-    })
 
-    console.log('[GameLoop] XR8 session started')
+    try {
+      XR8.run({
+        canvas: feedCanvas,
+        allowedDevices: XR8.XrConfig.device().ANY,
+      })
+      console.log('[GameLoop] XR8 session started successfully')
+    } catch (err: any) {
+      console.error('[GameLoop] XR8.run() threw an error:', err)
+      if (status) {
+        status.innerText = `AR Error: ${err?.message || 'Unknown error'}. Try reloading.`
+      }
+      // Re-show splash so the user can see the error
+      const splash = document.getElementById('ar-splash')
+      if (splash) splash.style.display = 'flex'
+    }
   }
 
   // ── Splash Screen → Start Session ───────────────────────────────
   const splash = document.getElementById('ar-splash')
-  const status = document.getElementById('splash-status')
+  const statusEl = document.getElementById('splash-status')
   
-  if (status) status.innerText = 'Tap anywhere to start AR'
+  if (statusEl) statusEl.innerText = 'Tap anywhere to start AR'
 
-  const handleStart = () => {
-    console.log('[GameLoop] User gesture detected — starting XR')
-    if (status) status.innerText = 'Initializing AR Camera... Please Wait'
+  // iOS FIX: Use a single flag to prevent double-firing from touchstart + click
+  let startTriggered = false
+
+  const handleStart = (e: Event) => {
+    // Prevent double-fire: on iOS, touchstart fires before click
+    if (startTriggered) return
+    startTriggered = true
+
+    // Prevent default to avoid ghost clicks on iOS
+    e.preventDefault()
+
+    console.log('[GameLoop] User gesture detected (' + e.type + ') — starting XR')
+    if (statusEl) statusEl.innerText = 'Initializing AR Camera... Please Wait'
     
-    // Disable multiple taps
+    // Remove both listeners immediately
     if (splash) {
       splash.removeEventListener('click', handleStart)
-      splash.removeEventListener('touchstart', handleStart)
+      splash.removeEventListener('touchend', handleStart)
     }
+
+    // iOS CRITICAL: startXR must be called synchronously within the user gesture
+    // event handler chain. `await` inside startXR is fine because the initial
+    // DeviceMotionEvent.requestPermission() call is still within the gesture context.
     startXR()
   }
 
   // Apple strictly requires a user gesture to access the camera/motion sensors.
+  // iOS FIX: Use touchend instead of touchstart — touchstart can interfere
+  // with iOS's gesture recognition and cause the click event to also fire.
   if (splash) {
     splash.addEventListener('click', handleStart)
-    splash.addEventListener('touchstart', handleStart)
+    splash.addEventListener('touchend', handleStart)
   } else {
     // Fallback if splash is missing
     startXR()
